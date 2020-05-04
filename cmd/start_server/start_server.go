@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jessevdk/go-flags"
+	starter "github.com/lestrrat/go-server-starter"
 )
 
 const version = "0.0.2"
@@ -113,5 +114,34 @@ func _main() (st int){
 		showHelp()
 		return
 	}
-
+	if opts.OptVersion {
+		fmt.Printf("%s\n", version)
+		st = 0
+		return
+	}
+	if opts.OptInterval < 0 {
+		opts.OptInterval = 1
+	}
+	if len(args) == 0 {
+		fmt.Fprintf(os.Stderr, "specify server program")
+		return
+	}
+	opts.OptCommand = args[0]
+	if len(args) > 1 {
+		opts.OptArgs = args[1:]
+	}
+	if opts.OptEnvdir != "" {
+		os.Setenv("ENVDIR", opts.OptEnvdir)
+	}
+	s, err := starter.NewStarter(opts)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", err)
+		return
+	}
+	if err = s.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", err)
+		return
+	}
+	st = 0
+	return
 }
