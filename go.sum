@@ -1,0 +1,4 @@
+github.com/jessevdk/go-flags v1.4.0 h1:4IU2WS7AumrZ/40jfhf4QVDMsQwqA7VEHozFRrGARJA=
+github.com/jessevdk/go-flags v1.4.0/go.mod h1:4FA24M0QyGHXBuZZK/XkWh8h0e1EYbRYJSGM75WSRxI=
+github.com/lestrrat/go-server-starter v0.0.0-20180220115249-6ac0b358431b h1:Ial71qYQufttbgLhmAAAgf4Y+p9KRKYklAoE9a8rXOA=
+github.com/lestrrat/go-server-starter v0.0.0-20180220115249-6ac0b358431b/go.mod h1:3T+o9dIpjId0dpv2Aa7+HivBIW9h9nra0VuN5ARP/ec=
