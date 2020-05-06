@@ -1,7 +1,3 @@
-- コネクションを終了させずにサーバープロセスを再起動するコマンド
+# brief description
 
-  - 指定したポートでリッスンするソケットを作成
-  - pidをファイルに記録
-  - 与えられたコマンドをサブプロセスとして起動し，その際にソケットを渡す
-  - SIGHUPを受け取ると，SIGTERMをサブプロセスに投げて，新たなコネクションを待ち受け
-  - 
+`server-starter` restarts server process without disconnecting. It creates a socket listening on specified ports, then executes the given command as sub process, passing the created socket. When this process receives SIGHUP, it sends SIGTERM to the sub process and executes command again.
