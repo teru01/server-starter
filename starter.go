@@ -88,6 +88,40 @@ func (d dummyProcessState) Sys() interface{} {
 }
 
 func signame(s os.Signal) string {
-	
+
 }
 
+func SigFromName(n string) os.Signal {
+
+}
+
+func setEnv() {
+
+}
+
+func parsePortSpec(addr string) (string, int, error) {
+
+}
+
+func (s *Starter) Run() error {
+
+}
+
+func getKillOldDelay() time.Duration {
+
+}
+
+type WorkerState int
+
+const (
+	WorkerStarted WorkerState = iota
+	ErrFailedToStart
+)
+
+func (s *Starter) StartWorker(sigCh chan os.Signal, ch chan processState) *os.Process {
+
+}
+
+func (s *Starter) Teardown() error {
+	
+}
