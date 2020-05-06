@@ -39,7 +39,7 @@ func makeNiceSigNamesCommon() map[syscall.Signal]string {
 }
 
 func makeNiceSigNames() map[syscall.Signal]string {
-	return addPlatformDependentNiceSignalNames()
+	return addPlatformDependentNiceSignalNames(makeNiceSigNamesCommon())
 }
 
 func init() {
@@ -197,7 +197,7 @@ func parsePortSpec(addr string) (string, int, error) {
 	if err != nil {
 		return "", -1, err
 	}
-	return addr, int(port), mil
+	return addr, int(port), nil
 }
 
 func (s *Starter) Run() error {
@@ -446,6 +446,8 @@ func (s *Starter) StartWorker(sigCh chan os.Signal, ch chan processState) *os.Pr
 				panic(err)
 			}
 			defer f.Close()
+			// ファイルディスクリプタは三番目以降として渡される．
+			// portsは子プロセスでfdと対応づけるため（子プロセスでfdを利用するから）
 			ports[i] = fmt.Sprintf("%s=%d", l.spec, i+3)
 			files[i] = f
 		}
