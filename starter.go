@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"syscall"
 	"time"
 )
@@ -200,7 +201,41 @@ func (s *Starter) Run() error {
 		s.listeners = append(s.listeners, listener{listener: l, spec: path})
 	}
 
-	
+	s.generation = 0
+	os.Setenv("SERVER_STARTER_GENERATION", fmt.Sprintf("%d", s.generation))
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+
+	setEnv()
+	workerCh := make(chan processState)
+	p := s.StartWorker(sigCh, workerCh)
+	oldWorkers := make(map[int]int)
+	var sigReceived os.Signal
+	var sigToSend os.Signal
+
+	statusCh := make(chan map[int]int)
+
+	// open file and save status
+	go func(filename string, ch chan map[int]int) {
+		for wmap := range ch {
+			if filename == "" {
+				continue
+			}
+
+			f, err := os.OpenFile(filename, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
+			if err != nil {
+				continue
+			}
+
+			for gen, pid := range wmap {
+				fmt.Fprintf(f, "%d:%d\n", gen, pid)
+			}
+			f.Close()
+		}
+	}(s.statusFile, statusCh)
+
+		
 }
 
 func getKillOldDelay() time.Duration {
