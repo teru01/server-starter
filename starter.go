@@ -235,7 +235,106 @@ func (s *Starter) Run() error {
 		}
 	}(s.statusFile, statusCh)
 
-		
+	defer func() {
+		if p != nil {
+			oldWorkers[p.Pid] = s.generation
+		}
+
+		fmt.Fprintf(os.Stderr, "received %s, sending %s to all workers:", signame(sigReceived), signame(sigToSend))
+		printMap(oldWorkers)
+
+		for pid := range oldWorkers {
+			worker, err := os.FindProcess(pid)
+			if err != nil {
+				continue
+			}
+			worker.Signal(sigToSend)
+		}
+
+		for len(oldWorkers) > 0 {
+			st := <- workerCh
+			fmt.Fprintf(os.Stderr, "worker %d died, status: %d\n", st.Pid(), grabExitStatus(st))
+			delete(oldWorkers, st.Pid())
+		}
+		fmt.Fprintf(os.Stderr, "exiting\n")
+	}()
+
+	for {
+		setEnv()
+		for {
+			status := make(map[int]int)
+			for pid, gen := range oldWorkers {
+				status[gen] = pid
+			}
+			status[s.generation] = p.Pid
+			statusCh <- status
+
+			restart := 0
+			select {
+			case st := <- workerCh:
+				if p.Pid == st.Pid() {
+					exitSt := grabExitStatus(st)
+					fmt.Fprintf(os.Stderr, "worker %d died unexpectedly with status %d, restarting\n", p.Pid, exitSt)
+					p = s.StartWorker(sigCh, workerCh)
+				} else {
+					exitSt := grabExitStatus(st)
+					fmt.Fprintf(os.Stderr, "old worker %d died, status: %d\n", st.Pid(), exitSt)
+					delete(oldWorkers, st.Pid())
+				}
+			case sigReceived = <- sigCh:
+				switch sigReceived {
+				case syscall.SIGHUP:
+					fmt.Fprintf(os.Stderr, "received HUP (num_old_workers=TODO)\n")
+					restart = 1
+					sigToSend = s.signalOnHUP
+				case syscall.SIGTERM:
+					sigToSend = s.signalOnTERM
+					return nil
+				default:
+					sigToSend = syscall.SIGTERM
+					return nil
+				}
+			}
+
+			if restart > 1 || restart > 0 && len(oldWorkers) == 0 {
+				fmt.Fprintf(os.Stderr, "spawning a new worker (num_old_workers=TODO\n")
+				oldWorkers[p.Pid] = s.generation
+				p = s.StartWorker(sigCh, workerCh)
+				fmt.Fprintf(os.Stderr, "new worker is now running, sending %s to old workers:", signame(sigToSend))
+				size := len(oldWorkers)
+				if size == 0 {
+					fmt.Fprintf(os.Stderr, "none\n")
+				} else {
+					printMap(oldWorkers)
+
+					killOldDelay := getKillOldDelay()
+					fmt.Fprintf(os.Stderr, "sleep %d secs\n", int(killOldDelay/time.Second))
+					if killOldDelay > 0 {
+						time.Sleep(killOldDelay)
+					}
+					fmt.Fprintf(os.Stderr, "killing old workers\n")
+
+					for pid := range oldWorkers {
+						worker, err := os.FindProcess(pid)
+						if err != nil {
+							continue
+						}
+						worker.Signal(s.signalOnHUP)
+					}
+				}
+			}
+		}
+	}
+}
+
+func printMap(m map[int]int) {
+	for i, pid := range m {
+		fmt.Fprintf(os.Stderr, "%d", pid)
+		if i < len(m)-1 {
+			fmt.Fprintf(os.Stderr, ",")
+		}
+	}
+	fmt.Fprintf(os.Stderr, "\n")
 }
 
 func getKillOldDelay() time.Duration {
