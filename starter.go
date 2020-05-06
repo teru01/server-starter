@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -16,11 +18,28 @@ var successStatus syscall.WaitStatus
 var failureStatus syscall.WaitStatus
 
 func makeNiceSigNamesCommon() map[syscall.Signal]string {
-
+	return map[syscall.Signal]string {
+		syscall.SIGABRT: "ABRT",
+		syscall.SIGALRM: "ALRM",
+		syscall.SIGBUS:  "BUS",
+		// syscall.SIGEMT:  "EMT",
+		syscall.SIGFPE: "FPE",
+		syscall.SIGHUP: "HUP",
+		syscall.SIGILL: "ILL",
+		// syscall.SIGINFO: "INFO",
+		syscall.SIGINT: "INT",
+		// syscall.SIGIOT:    "IOT",
+		syscall.SIGKILL: "KILL",
+		syscall.SIGPIPE: "PIPE",
+		syscall.SIGQUIT: "QUIT",
+		syscall.SIGSEGV: "SEGV",
+		syscall.SIGTERM: "TERM",
+		syscall.SIGTRAP: "TRAP",
+	}
 }
 
 func makeNiceSigNames() map[syscall.Signal]string {
-
+	return addPlatformDependentNiceSignalNames()
 }
 
 func init() {
@@ -142,7 +161,7 @@ func parsePortSpec(addr string) (string, int, error) {
 func (s *Starter) Run() error {
 	defer s.Teardown()
 
-	if s.pidFile != nil {
+	if s.pidFile != "" {
 		f, err := os.OpenFile(s.pidFile, os.O_CREATE|os.O_EXCL|os.O_WRONLY|os.O_TRUNC, 0644)
 		if err != nil {
 			return err
@@ -252,7 +271,7 @@ func (s *Starter) Run() error {
 		}
 
 		for len(oldWorkers) > 0 {
-			st := <- workerCh
+			st := <-workerCh
 			fmt.Fprintf(os.Stderr, "worker %d died, status: %d\n", st.Pid(), grabExitStatus(st))
 			delete(oldWorkers, st.Pid())
 		}
@@ -261,6 +280,8 @@ func (s *Starter) Run() error {
 
 	for {
 		setEnv()
+
+		// wait for signal or halt of worker
 		for {
 			status := make(map[int]int)
 			for pid, gen := range oldWorkers {
@@ -269,9 +290,11 @@ func (s *Starter) Run() error {
 			status[s.generation] = p.Pid
 			statusCh <- status
 
+			// 2: force restart
+			// 1: no workers
 			restart := 0
 			select {
-			case st := <- workerCh:
+			case st := <-workerCh:
 				if p.Pid == st.Pid() {
 					exitSt := grabExitStatus(st)
 					fmt.Fprintf(os.Stderr, "worker %d died unexpectedly with status %d, restarting\n", p.Pid, exitSt)
@@ -281,7 +304,7 @@ func (s *Starter) Run() error {
 					fmt.Fprintf(os.Stderr, "old worker %d died, status: %d\n", st.Pid(), exitSt)
 					delete(oldWorkers, st.Pid())
 				}
-			case sigReceived = <- sigCh:
+			case sigReceived = <-sigCh:
 				switch sigReceived {
 				case syscall.SIGHUP:
 					fmt.Fprintf(os.Stderr, "received HUP (num_old_workers=TODO)\n")
@@ -325,6 +348,7 @@ func (s *Starter) Run() error {
 			}
 		}
 	}
+	return nil
 }
 
 func printMap(m map[int]int) {
@@ -338,7 +362,12 @@ func printMap(m map[int]int) {
 }
 
 func getKillOldDelay() time.Duration {
-
+	delay, _ := strconv.ParseInt(os.Getenv("KILL_OLD_DELAY"), 10, 0)
+	autoRestart, _ := strconv.ParseBool(os.Getenv("ENABLE_AUTO_RESTART"))
+	if autoRestart && delay == 0 {
+		delay = 5
+	}
+	return time.Duration(delay) * time.Second
 }
 
 type WorkerState int
@@ -349,9 +378,104 @@ const (
 )
 
 func (s *Starter) StartWorker(sigCh chan os.Signal, ch chan processState) *os.Process {
+	for {
+		pid := -1
+		cmd := exec.Command(s.command, s.args...)
+		if s.dir != "" {
+			cmd.Dir = s.dir
+		}
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
 
+		files := make([]*os.File, len(s.ports)+len(s.paths))
+		ports := make([]string, len(s.ports)+len(s.paths))
+		for i, l := range s.listeners {
+			var f *os.File
+			var err error
+			switch l.listener.(type) {
+			case *net.TCPListener:
+				f, err = l.listener.(*net.TCPListener).File()
+			case *net.UnixListener:
+				f, err = l.listener.(*net.UnixListener).File()
+			default:
+				panic("unknown listener type")
+			}
+			if err != nil {
+				panic(err)
+			}
+			defer f.Close()
+			ports[i] = fmt.Sprintf("%s=%d", l.spec, i+3)
+			files[i] = f
+		}
+		cmd.ExtraFiles = files
+		s.generation++
+		os.Setenv("SERVER_STARTER_PORT", strings.Join(ports, ";"))
+		os.Setenv("SERVER_STARTER_GENERATION", fmt.Sprintf("%d", s.generation))
+
+		if err := cmd.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to start exec %s: %s\n", cmd.Path, err)
+		} else {
+			pid = cmd.Process.Pid
+			fmt.Fprintf(os.Stderr, "starting new worker pid: %d\n", pid)
+
+			// wait for interval before checking if the process is alive
+			tch := time.After(s.interval)
+			sigs := []os.Signal{}
+			for loop := true; loop; {
+				select {
+				case <-tch:
+					loop = false
+				case sig := <-sigCh:
+					sigs = append(sigs, sig)
+				}
+			}
+			// received any signal
+			gotSig := false
+			if len(sigs) > 0 {
+				for _, sig := range sigs {
+					// push external signal to be handled by main routine
+					go func() {
+						sigCh <- sig
+					}()
+					if sysSig, ok := sig.(syscall.Signal); ok {
+						if sysSig != syscall.SIGHUP {
+							gotSig = true
+						}
+					}
+				}
+			}
+			p := findWorker(pid)
+			if gotSig || p != nil {
+				go func() {
+					err := cmd.Wait()
+					if err != nil {
+						ch <- err.(*exec.ExitError).ProcessState
+					} else {
+						ch <- &dummyProcessState{pid: pid, status: successStatus}
+					}
+				}()
+				return p
+			}
+		}
+		cmd.Wait()
+		for _, f := range cmd.ExtraFiles {
+			f.Close()
+		}
+		fmt.Fprintf(os.Stderr, "new worker %d seems to have failed to start\n", pid)
+	}
+
+	// never reach
+	return nil
 }
 
 func (s *Starter) Teardown() error {
+	if s.statusFile != "" {
+		os.Remove(s.statusFile)
+	}
 
+	for _, l := range s.listeners {
+		l.listener.Close()
+	}
+
+	return nil
 }
