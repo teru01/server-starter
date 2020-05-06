@@ -43,7 +43,11 @@ func makeNiceSigNames() map[syscall.Signal]string {
 }
 
 func init() {
-
+	niceSigNames = makeNiceSigNames()
+	niceNameToSigs = make(map[string]syscall.Signal)
+	for sig, name := range niceSigNames {
+		niceNameToSigs[name] = sig
+	}
 }
 
 type listener struct {
@@ -131,7 +135,12 @@ type dummyProcessState struct {
 }
 
 func grabExitStatus(st processState) syscall.WaitStatus {
-
+	exitSt, ok := st.Sys().(syscall.WaitStatus)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "unexpected platform")
+		exitSt = failureStatus
+	}
+	return exitSt
 }
 
 func (d dummyProcessState) Pid() int {
@@ -143,19 +152,52 @@ func (d dummyProcessState) Sys() interface{} {
 }
 
 func signame(s os.Signal) string {
-
+	if ss, ok := s.(syscall.Signal); ok {
+		return niceSigNames[ss]
+	}
+	return "UNKNOWN"
 }
 
 func SigFromName(n string) os.Signal {
-
+	n = strings.ToUpper(n)
+	if strings.HasPrefix(n, "SIG") {
+		n = n[3:]
+	}
+	if sig, ok := niceNameToSigs[n]; ok {
+		return sig
+	}
+	return nil
 }
 
 func setEnv() {
+	if os.Getenv("ENVDIR") == "" {
+		return
+	}
+	m, err := reloadEnv()
+	if err != nil && err != errNoEnv {
+		fmt.Fprintf(os.Stderr, "failed to load from envdir: %s\n", err)
+	}
 
+	for k, v := range m {
+		os.Setenv(k, v)
+	}
 }
 
 func parsePortSpec(addr string) (string, int, error) {
-
+	i := strings.IndexByte(addr, ':')
+	portPart := ""
+	if i < 0 {
+		portPart = addr
+		addr = ""
+	} else {
+		portPart = addr[i+1:]
+		addr = addr[:i]
+	}
+	port, err := strconv.ParseInt(portPart, 10, 64)
+	if err != nil {
+		return "", -1, err
+	}
+	return addr, int(port), mil
 }
 
 func (s *Starter) Run() error {
