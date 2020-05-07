@@ -32,7 +32,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	handler := http.HandlerFunc(func (w http.RequestWriter, r *http.Request) {
+	handler := http.HandlerFunc(func (w http.ResponseWriter, r *http.Request) {
 		io.Copy(w, r.Body)
 	})
 	for _, l := range listeners {

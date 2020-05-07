@@ -144,7 +144,7 @@ func grabExitStatus(st processState) syscall.WaitStatus {
 }
 
 func (d dummyProcessState) Pid() int {
-	return d.Pid()
+	return d.pid
 }
 
 func (d dummyProcessState) Sys() interface{} {
@@ -211,7 +211,7 @@ func (s *Starter) Run() error {
 		if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
 			return err
 		}
-		fmt.Fprintf(f, "%d", os.Getegid())
+		fmt.Fprintf(f, "%d", os.Getpid())
 		defer func() {
 			os.Remove(f.Name())
 			f.Close()

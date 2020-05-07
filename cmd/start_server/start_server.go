@@ -123,7 +123,7 @@ func _main() (st int){
 		opts.OptInterval = 1
 	}
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "specify server program")
+		fmt.Fprintf(os.Stderr, "specify server program\n")
 		return
 	}
 	opts.OptCommand = args[0]
