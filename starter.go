@@ -235,7 +235,7 @@ func (s *Starter) Run() error {
 
 		spec := ""
 		if host == "" {
-			spec = fmt.Sprint("%d", port)
+			spec = fmt.Sprintf("%d", port)
 		} else {
 			spec = fmt.Sprintf("%s:%d", host, port)
 		}

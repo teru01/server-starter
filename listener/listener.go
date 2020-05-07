@@ -7,8 +7,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
-
-	"github.com/hashicorp/hcl/hcl/strconv"
+	"strconv"
 )
 
 const ServerStarterEnvVarName = "SERVER_STARTER_PORT"
@@ -112,7 +111,7 @@ func parseListenTargets(str string) ([]Listener, error) {
 		} else {
 			ret[i] = UnixListener{
 				Path: hostPort,
-				fd: uintptr(fd)
+				fd: uintptr(fd),
 			}
 		}
 	}
